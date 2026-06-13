@@ -90,8 +90,6 @@ Solución para el desafío Kaggle de **clasificación jerárquica de imágenes d
 - [Resultados](#-resultados)
 - [Evolución de versiones](#-evolución-de-versiones-v1--v10)
 - [Requisitos](#-requisitos)
-- [Cómo ejecutar](#-cómo-ejecutar)
-- [Integrantes](#-integrantes)
 
 ---
 
