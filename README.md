@@ -76,7 +76,7 @@ pip install pandas numpy matplotlib seaborn scikit-learn statsmodels tensorflow
 
 Solución para el desafío Kaggle de **clasificación jerárquica de imágenes de comida** en dos niveles simultáneos: el **origen geográfico** de la cocina y el **plato específico**. La métrica oficial es **Macro F1** sobre las 107 clases (6 de nivel 1 + 101 de nivel 2).
 
-🔗 [Enlace al desafío en Kaggle](https://www.kaggle.com/t/481380a3121a4667b38cdf44f8cbaf93)
+🔗 [Enlace al desafío en Kaggle](https://www.kaggle.com/competitions/clasificacion-jerarquica-de-comidas-del-mundo)
 
 > **Resultado final (v10): Public Score `0.93258`** — una mejora de **+0.05155** sobre el baseline (`0.88103`).
 
