@@ -10,7 +10,7 @@ __Semestre 1-2026 · Profesor: Carlos Valle__
 - Milenka Zuvic
 - Brayan López
 
-# Parte 1 de la Tarea - Clasificación de Niveles de Obesidad
+# Parte 1 de la Tarea - Redes Neuronales Recurrentes
 
 ## Descripción
 
@@ -71,3 +71,171 @@ pip install pandas numpy matplotlib seaborn scikit-learn statsmodels tensorflow
 | Tiempo de entrenamiento | — | menor |
 
 **Conclusión:** la arquitectura **GRU** resulta más adecuada para este problema. Alcanza un menor error en test con casi **5× menos parámetros**, menor tiempo de entrenamiento y una curva de aprendizaje más estable, siguiendo mejor la tendencia del PM2.5 real. El desempeño global queda limitado principalmente por el *distribution shift* entre el periodo de entrenamiento (2013–2015) y el de validación/test (2016–2017), y por la baja autocorrelación de la serie a 24 horas, más que por la elección de hiperparámetros.
+
+#    Parte 2: Clasificación Jerárquica de Comidas del Mundo
+
+Solución para el desafío Kaggle de **clasificación jerárquica de imágenes de comida** en dos niveles simultáneos: el **origen geográfico** de la cocina y el **plato específico**. La métrica oficial es **Macro F1** sobre las 107 clases (6 de nivel 1 + 101 de nivel 2).
+
+🔗 [Enlace al desafío en Kaggle](https://www.kaggle.com/t/481380a3121a4667b38cdf44f8cbaf93)
+
+> **Resultado final (v10): Public Score `0.93258`** — una mejora de **+0.05155** sobre el baseline (`0.88103`).
+
+---
+
+## 📋 Tabla de contenidos
+
+- [Descripción del problema](#-descripción-del-problema)
+- [Enfoque de la solución](#-enfoque-de-la-solución)
+- [Estructura del notebook](#-estructura-del-notebook)
+- [Resultados](#-resultados)
+- [Evolución de versiones](#-evolución-de-versiones-v1--v10)
+- [Requisitos](#-requisitos)
+- [Cómo ejecutar](#-cómo-ejecutar)
+- [Integrantes](#-integrantes)
+
+---
+
+## 🎯 Descripción del problema
+
+Cada imagen activa **exactamente una clase de cada nivel**:
+
+| Nivel | Clases | IDs | Descripción |
+|-------|:------:|:----:|-------------|
+| **Nivel 1** (categoría) | 6 | `0–5` | 5 orígenes geográficos + 1 categoría temática (Postres & Dulces) |
+| **Nivel 2** (plato) | 101 | `6–106` | Plato específico |
+
+**Formato de submission** (`label` = nivel 1 + nivel 2 separados por espacio):
+
+```
+filename,label
+042137.jpg,5 6
+081432.jpg,1 101
+```
+
+---
+
+## 🧠 Enfoque de la solución
+
+El diseño central combina un **encoder compartido** con una **doble cabeza jerárquica** y mascarado de coherencia en inferencia.
+
+### Decisiones de diseño clave
+- **Backbone:** `convnextv2_base.fcmae_ft_in22k_in1k` (transfer learning con `timm`). Modelos adicionales en el ensemble final: ConvNeXt V2-Large @384 y EVA-02-Base @448.
+- **Doble cabeza** sobre un encoder único: 6 logits (nivel 1) + 101 logits (nivel 2), con dropout.
+- **Pérdida combinada** `w1·L1 + w2·L2` con `w1 < w2` (nivel 2 domina la métrica).
+- **Focal Loss** (γ=2) para enfocar el entrenamiento en ejemplos difíciles.
+- **Label smoothing** + **augmentation fuerte** (RandAugment, RandomResizedCrop, RandomErasing, ColorJitter, MixUp/CutMix) contra el ruido de etiquetas.
+- **Mascarado jerárquico en inferencia:** dado que cada plato pertenece a un único origen (relación muchos-a-uno), se enmascaran los logits incoherentes → elimina toda una clase de errores triviales.
+- **Fine-tuning en 2 fases:** primero solo las cabezas (backbone congelado), luego todo con `lr` menor.
+- **Ensemble multi-seed**, **model soup**, **pseudo-labeling** y **blend de múltiples familias** de modelos.
+
+### Técnicas de optimización
+- Entrenamiento con **AMP** (mixed precision), `channels_last`, TF32 y gradient accumulation (batch efectivo = 32).
+- **Sistema de caché** reutilizable para pasos costosos (pre-decode/resize de imágenes, HP search, entrenamiento, predicción) → permite reanudar tras reinicios.
+- **Autodetección de GPU/CUDA** y de la ruta del dataset.
+
+---
+
+## 📓 Estructura del notebook
+
+El notebook [`Parte_2.ipynb`](Parte_2.ipynb) sigue estas secciones:
+
+| Sección | Contenido |
+|---------|-----------|
+| **0. Config y requerimientos** | Instalación de dependencias, configuración central (`CFG`), reproducibilidad, GPU, caché |
+| **1. Análisis exploratorio (EDA)** | Distribución por nivel, desbalance, calidad de imágenes, relación plato→origen |
+| **2. Preprocesamiento** | Split estratificado, transformaciones, data augmentation, `Dataset` |
+| **3. Modelos explorados** | Arquitectura jerárquica, Focal Loss, MixUp, mascarado en inferencia |
+| **4. Búsqueda de hiperparámetros** | Grid pequeño sobre subset estratificado con early-stop agresivo |
+| **5. Resultados y discusión** | Curvas, matriz de confusión, peores clases, errores |
+| **6. Generación de submission** | Predicción sobre test + verificación de formato |
+| **7. Evolución de versiones** | Historial v1 → v10 con scores |
+| **8. Investigación de mejoras** | Análisis de las 9 palancas exploradas y hallazgos transversales |
+
+### Hallazgos del EDA
+- Nivel 1: desbalance moderado (ratio máx/mín ≈ 4.1).
+- Nivel 2: **perfectamente balanceado** (800 imágenes/clase, ratio = 1.00).
+- Cada plato → un único origen (relación muchos-a-uno verificada) → valida el mascarado jerárquico.
+
+---
+
+## 📊 Resultados
+
+- La Macro F1 global está dominada por las 101 clases de nivel 2 (más numerosas y confusas); el nivel 1 alcanza F1 alto con facilidad gracias al encoder pre-entrenado.
+- Las clases de nivel 2 con peor F1 son visualmente similares entre sí o sufren más el ruido de etiquetas.
+- El mascarado jerárquico garantiza coherencia plato→origen y elimina errores triviales.
+
+---
+
+## 📈 Evolución de versiones (v1 → v10)
+
+| Versión | Cambio principal | Public Score | Δ |
+|:-------:|------------------|:------------:|:----:|
+| **v1** | Baseline: ConvNeXt V2 **Tiny**, doble cabeza, label smoothing, mascarado | 0.88103 | — |
+| **v2** | Focal Loss + CutMix/MixUp + augmentation fuerte | 0.88146 | +0.00043 |
+| v3 | Infraestructura de ensemble multi-seed | *(no subido)* | — |
+| **v4** | Backbone **Base** (89M) + TTA multi-vista + ensemble 2 seeds | 0.91282 | **+0.03136** |
+| v5/v6 | TTA multi-escala, decisión desacoplada, FixRes 288 | 0.91218–0.91265 | *(negativos)* |
+| **v7a** | **Model soup** (promedio de pesos s42+s7) | 0.91352 | +0.00070 |
+| **v7b** | **Pseudo-labeling** (conf≥0.8) + fine-tune full-data | 0.91457 | +0.00105 |
+| **v8a** | **ConvNeXt V2-Large @384** (Kaggle T4, 9.2h) | 0.91658 | +0.00201 |
+| **v8** | **Blend 2 familias** (local + Large-ft3) | 0.92329 | +0.00671 |
+| **v9a** | **EVA-02-Base @448** (ViT/MIM, Kaggle T4×2, 5.7h) | 0.92685 | +0.00356 |
+| **v9** | **Blend 3 familias** (1/3 local + 1/3 Large + 1/3 EVA) | 0.93030 | +0.00345 |
+| **v10 (final)** | **EVA-02 v2** + blend EVA-pesado (25/25/50) | **0.93258** | **+0.00228** |
+
+**Lecciones transversales:**
+1. La capacidad del backbone es la palanca dominante (v1→v4: +0.032).
+2. La validación local **no es proxy fiable** para diferencias <0.002.
+3. Lo que transfiere al leaderboard son los **mecanismos monótonos**: capacidad, datos, votantes fuertes, promediado de pesos.
+4. La **diversidad de familias** de modelos fue la palanca compuesta más rentable.
+5. Ponderar el miembro más fuerte del blend supera al blend uniforme.
+
+---
+
+## ⚙️ Requisitos
+
+- **Python 3.9+**
+- **PyTorch** (con CUDA recomendado; funciona en CPU pero lento)
+- Dependencias principales (se instalan automáticamente en la sección 0 del notebook):
+
+```
+torch
+timm
+albumentations
+scikit-learn
+pandas
+numpy<2
+matplotlib
+seaborn
+pillow
+tqdm
+```
+
+
+### Dataset
+Estructura esperada (carpeta con):
+```
+train.csv
+test_public.csv
+sample_submission.csv
+dict.npy          # id -> nombre legible
+train/            # imágenes de entrenamiento
+test/             # imágenes de test
+```
+
+---
+
+## 🚀 Cómo ejecutar
+
+1. **Coloca el dataset** en una de las rutas autodetectadas (p. ej. `./kaggle_food101`) o define la ruta manualmente:
+   ```powershell
+   $env:FOOD_DATA_DIR = "C:\ruta\al\dataset"
+   ```
+2. **Abre y ejecuta** [`Parte_2.ipynb`](Parte_2.ipynb) de principio a fin (VS Code / Jupyter).
+3. Para **iteración rápida**, activa el modo debug en la clase `CFG`:
+   ```python
+   CFG.DEBUG = True   # usa un subset estratificado del train
+   ```
+4. La submission final se genera en `outputs/v4/run_v04_<RUN_ID>/submission_v04_<RUN_ID>.csv`.
+
+> El sistema de caché (`./cache/`) permite **reanudar** la ejecución sin recomputar entrenamiento ni predicciones ya realizadas.
