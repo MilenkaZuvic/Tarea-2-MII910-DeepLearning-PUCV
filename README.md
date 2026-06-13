@@ -224,18 +224,3 @@ test/             # imágenes de test
 ```
 
 ---
-
-## 🚀 Cómo ejecutar
-
-1. **Coloca el dataset** en una de las rutas autodetectadas (p. ej. `./kaggle_food101`) o define la ruta manualmente:
-   ```powershell
-   $env:FOOD_DATA_DIR = "C:\ruta\al\dataset"
-   ```
-2. **Abre y ejecuta** [`Parte_2.ipynb`](Parte_2.ipynb) de principio a fin (VS Code / Jupyter).
-3. Para **iteración rápida**, activa el modo debug en la clase `CFG`:
-   ```python
-   CFG.DEBUG = True   # usa un subset estratificado del train
-   ```
-4. La submission final se genera en `outputs/v4/run_v04_<RUN_ID>/submission_v04_<RUN_ID>.csv`.
-
-> El sistema de caché (`./cache/`) permite **reanudar** la ejecución sin recomputar entrenamiento ni predicciones ya realizadas.
